@@ -1,6 +1,6 @@
 """Benchmarks for roaringbitmap"""
 from __future__ import division, print_function, absolute_import, \
-        unicode_literals
+		unicode_literals
 import random
 import timeit
 
@@ -28,7 +28,20 @@ def bench_init():
 	return a, b
 
 
+def bench_initsort():
+	a = timeit.Timer('set(data)',
+			setup='from __main__ import DATA1; '
+				'data = sorted(DATA1)').timeit(number=M)
+	b = timeit.Timer('rb = RoaringBitmap(data)',
+			setup='from __main__ import DATA1; '
+				'from roaringbitmap import RoaringBitmap; '
+				'data = sorted(DATA1)'
+				).timeit(number=M)
+	return a, b
+
+
 def bench_eq():
+	# benchmark equality with equal operands
 	a = timeit.Timer('ref == ref2',
 			setup='from __main__ import DATA1; '
 				'ref = set(DATA1); ref2 = set(DATA1)').timeit(number=M)
@@ -41,10 +54,11 @@ def bench_eq():
 
 
 def bench_neq():
-	a = timeit.Timer('ref == ref2',
+	# benchmark non-equality with non-equal operands
+	a = timeit.Timer('ref != ref2',
 			setup='from __main__ import DATA1, DATA2; '
 				'ref = set(DATA1); ref2 = set(DATA2)').timeit(number=M)
-	b = timeit.Timer('rb == rb2',
+	b = timeit.Timer('rb != rb2',
 			setup='from __main__ import DATA1, DATA2; '
 				'from roaringbitmap import RoaringBitmap; '
 				'rb = RoaringBitmap(DATA1); '
@@ -156,41 +170,77 @@ def bench_isub():
 	return sum(aa) / M, sum(bb) / M
 
 
+def bench_andlen():
+	a = timeit.Timer('len(ref & ref2)',
+			setup='from __main__ import DATA1, DATA2; '
+				'ref = set(DATA1); ref2 = set(DATA2)').timeit(number=M)
+	b = timeit.Timer('rb.intersection_len(rb2)',
+			setup='from __main__ import DATA1, DATA2; '
+				'from roaringbitmap import RoaringBitmap; '
+				'rb = RoaringBitmap(DATA1); '
+				'rb2 = RoaringBitmap(DATA2)').timeit(number=M)
+	return a, b
+
+
+def bench_orlen():
+	a = timeit.Timer('len(ref | ref2)',
+			setup='from __main__ import DATA1, DATA2; '
+				'ref = set(DATA1); ref2 = set(DATA2)').timeit(number=M)
+	b = timeit.Timer('rb.union_len(rb2)',
+			setup='from __main__ import DATA1, DATA2; '
+				'from roaringbitmap import RoaringBitmap; '
+				'rb = RoaringBitmap(DATA1); '
+				'rb2 = RoaringBitmap(DATA2)').timeit(number=M)
+	return a, b
+
+
+def bench_jaccard():
+	a = timeit.Timer('1 - (len(ref & ref2) / len(ref | ref2))',
+			setup='from __main__ import DATA1, DATA2; '
+				'ref = set(DATA1); ref2 = set(DATA2)').timeit(number=M)
+	b = timeit.Timer('rb.jaccard_dist(rb2)',
+			setup='from __main__ import DATA1, DATA2; '
+				'from roaringbitmap import RoaringBitmap; '
+				'rb = RoaringBitmap(DATA1); '
+				'rb2 = RoaringBitmap(DATA2)').timeit(number=M)
+	return a, b
+
+
 def main():
 	global N, MAX, DATA1, DATA2
 	for x in range(3):
-		if x == 0:
-			print('sparse set')
-			N = 200
-			MAX = 40000
-		elif x == 1:
-			print('dense set / high load factor')
-			N = 40000 - 200
-			MAX = 40000
-		elif x == 2:
+		if x == 0:  # benchmark positive blocks
+			print('small sparse set')
+			N = 200  # number of random elements
+			MAX = 40000  # range of elements
+		elif x == 1:  # benchmark bitmap blocks
 			print('medium load factor')
 			N = 59392
 			MAX = 118784
-		elif x == 3:
-			print('large range')
-			N = 1 << 17  # number of random elements
+		elif x == 2:  # benchmark inverted blocks
+			print('dense set / high load factor')
+			N = 40000 - 200
+			MAX = 40000
+		elif x == 3:  # benchmark large number of small blocks
+			print('large sparse set')  # don't use RoaringBitmap for this case
+			N = 1 << 12
 			MAX = 1 << 31
 		DATA1, DATA2 = pair()
 
-		fmt = '%8s %8s %16s %8s'
+		fmt = '%12s %8s %16s %8s'
 		numfmt = '%8.3g'
 		print('%d runs with sets of %d random elements n s.t. 0 <= n < %d' % (
 				M, N, MAX))
 		print(fmt % ('', 'set()', 'RoaringBitmap()', 'ratio'))
-		for func in (bench_init,
-				bench_and,  # bench_iand,
-				bench_or,  # bench_ior,
-				bench_xor,  # bench_ixor,
-				bench_sub,  # bench_isub,
-				bench_eq, bench_neq):
+		for func in (bench_init, bench_initsort,
+				bench_and, bench_or, bench_xor, bench_sub,
+				bench_iand, bench_ior, bench_ixor, bench_isub,
+				bench_eq, bench_neq,
+				# bench_andlen, bench_orlen,
+				bench_jaccard):
 			a, b = func()
 			ratio = a / b
-			print(fmt % (func.__name__.split('_', 1)[1].ljust(8),
+			print(fmt % (func.__name__.split('_', 1)[1].ljust(12),
 					numfmt % a, numfmt % b,
 					(numfmt % ratio) if ratio < 100 else int(ratio)))
 		print()

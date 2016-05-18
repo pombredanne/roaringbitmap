@@ -3,6 +3,8 @@ import os
 import sys
 from distutils.core import setup
 from distutils.extension import Extension
+
+PY2 = sys.version_info[0] == 2
 USE_CYTHON = '--with-cython' in sys.argv or not os.path.exists(
 		'src/roaringbitmap.c')
 if USE_CYTHON:
@@ -12,18 +14,27 @@ if USE_CYTHON:
 		from Cython.Build import cythonize
 		from Cython.Distutils import build_ext
 	except ImportError:
-		raise ValueError('could not import Cython.')
+		raise RuntimeError('could not import Cython.')
 	cmdclass = dict(build_ext=build_ext)
 else:
 	cmdclass = dict()
 
-metadata = dict(name='roaringbitmap',
-		version='0.3',
+DEBUG = '--debug' in sys.argv
+if DEBUG:
+	sys.argv.remove('--debug')
+
+with open('README.rst') as inp:
+	README = inp.read()
+
+METADATA = dict(name='roaringbitmap',
+		version='0.4',
 		description='Roaring Bitmap',
-		long_description=open('README.rst').read(),
+		long_description=README,
 		author='Andreas van Cranenburgh',
 		author_email='A.W.vanCranenburgh@uva.nl',
-		url='https://github.com/andreasvc/roaringbitmap/',
+		url='http://roaringbitmap.readthedocs.io',
+		license='GPL',
+		platforms=['Many'],
 		classifiers=[
 				'Development Status :: 4 - Beta',
 				'Intended Audience :: Science/Research',
@@ -44,6 +55,7 @@ directives = {
 		'nonecheck': False,
 		'wraparound': False,
 		'boundscheck': False,
+		'infer_types': None,
 		'embedsignature': True,
 		'warn.unused': True,
 		'warn.unreachable': True,
@@ -54,17 +66,30 @@ directives = {
 		}
 
 if __name__ == '__main__':
+	if sys.version_info[:2] < (2, 7) or (3, 0) <= sys.version_info[:2] < (3, 3):
+		raise RuntimeError('Python version 2.7 or >= 3.3 required.')
 	os.environ['GCC_COLORS'] = 'auto'
+	# NB: could also use Cython compile-time definition,
+	# but this would lead to different C output for Python 2/3.
+	extra_compile_args = ['-DPY2=%d' % PY2,  # '-fopt-info-vec-missed',
+			'-Wno-strict-prototypes', '-Wno-unreachable-code']
+	if not DEBUG:
+		extra_compile_args += ['-O3', '-march=native', '-DNDEBUG']
+		extra_link_args = ['-DNDEBUG']
 	if USE_CYTHON:
-		extensions = [Extension(
-				'*',
-				sources=['src/*.pyx'],
-				extra_compile_args=['-O3', '-DNDEBUG', '-march=native'],
-				# extra_compile_args=['-O0', '-g'],
-				# extra_link_args=['-g'],
-				)]
+		if DEBUG:
+			directives.update(wraparound=True, boundscheck=True)
+			extra_compile_args += ['-g', '-O0',
+					# '-fsanitize=address', '-fsanitize=undefined',
+					'-fno-omit-frame-pointer']
+			extra_link_args = ['-g']
 		ext_modules = cythonize(
-				extensions,
+				[Extension(
+					'*',
+					sources=['src/*.pyx'],
+					extra_compile_args=extra_compile_args,
+					extra_link_args=extra_link_args,
+					)],
 				annotate=True,
 				compiler_directives=directives,
 				language_level=3,
@@ -73,9 +98,10 @@ if __name__ == '__main__':
 		ext_modules = [Extension(
 				'roaringbitmap',
 				sources=['src/roaringbitmap.c'],
-				extra_compile_args=['-O3', '-DNDEBUG', '-march=native'],
+				extra_compile_args=extra_compile_args,
+				extra_link_args=extra_link_args,
 				)]
 	setup(
 			cmdclass=cmdclass,
 			ext_modules=ext_modules,
-			**metadata)
+			**METADATA)
